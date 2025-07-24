@@ -9,8 +9,8 @@ const HELPERS = {
   REGISTER: 'ember-cli-code-coverage-register',
 };
 
-const STATEMENTS_TO_INSERT = Symbol('statementsToInsert');
-const IS_COVERAGE_HELPER = Symbol('isCoverageHelper');
+const coveragehelpers = new WeakSet();
+const statementsToInsert = new WeakMap();
 
 module.exports = function (appRoot, templateExtensions, include, exclude) {
   const _exclude = new TestExclude({
@@ -60,16 +60,19 @@ module.exports = function (appRoot, templateExtensions, include, exclude) {
         statement: self.cov._currentStatement,
       });
 
-      container[STATEMENTS_TO_INSERT] = container[STATEMENTS_TO_INSERT] || [];
-      container[STATEMENTS_TO_INSERT].unshift({
+      if (!statementsToInsert.has(container)) {
+        statementsToInsert.set(container, []);
+      }
+
+      statementsToInsert.get(container).unshift({
         helper,
         index,
       });
     };
 
     self.processStatementsToInsert = (node) => {
-      if (node[STATEMENTS_TO_INSERT]) {
-        node[STATEMENTS_TO_INSERT].forEach((statement) => {
+      if (statementsToInsert.has(node)) {
+        statementsToInsert.get(node).forEach((statement) => {
           let { helper, index } = statement;
 
           let children = node.children || node.body;
@@ -102,11 +105,11 @@ module.exports = function (appRoot, templateExtensions, include, exclude) {
     };
 
     self.handleStatement = (node) => {
-      if (node[IS_COVERAGE_HELPER]) {
+      if (coveragehelpers.has(node)) {
         return;
       }
 
-      if (node.type === 'TextNode' && node.chars.trim() === '') {
+      if (node.type === 'TextNode') {
         return;
       }
 
@@ -149,6 +152,20 @@ module.exports = function (appRoot, templateExtensions, include, exclude) {
         }
       } else {
         self.cov.newStatement(node);
+
+        // helper
+        if (
+          current.type === 'AttrNode' &&
+          node.type !== 'SubExpression' &&
+          (node.params.length || node.hash.pairs.length)
+        ) {
+          const helper = self.createHelper(null, {
+            statement: self.cov._currentStatement,
+          });
+          helper.params = [b.sexpr(node.path, node.params)];
+          return helper;
+        }
+
         self.insertStatementHelper(node);
       }
     };
@@ -159,7 +176,7 @@ module.exports = function (appRoot, templateExtensions, include, exclude) {
         return;
       }
 
-      if (node[IS_COVERAGE_HELPER]) {
+      if (coveragehelpers.has(node)) {
         return;
       }
 
@@ -192,7 +209,7 @@ module.exports = function (appRoot, templateExtensions, include, exclude) {
         b.string(JSON.stringify(self.cov.data)),
       ]);
 
-      helper[IS_COVERAGE_HELPER] = true;
+      coveragehelpers.add(helper);
       return helper;
     };
 
@@ -224,7 +241,7 @@ module.exports = function (appRoot, templateExtensions, include, exclude) {
         hash
       );
 
-      helper[IS_COVERAGE_HELPER] = true;
+      coveragehelpers.add(helper);
       return helper;
     };
 

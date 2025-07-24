@@ -155,7 +155,7 @@ module.exports = function (appRoot, templateExtensions, include, exclude) {
 
         // helper
         if (
-          current.type === 'AttrNode' &&
+          (current.type === 'AttrNode' || current.type === 'ConcatStatement') &&
           node.type !== 'SubExpression' &&
           (node.params.length || node.hash.pairs.length)
         ) {
@@ -304,6 +304,14 @@ module.exports = function (appRoot, templateExtensions, include, exclude) {
             );
             node.params[1] = helper;
           }
+        },
+        ConcatStatement: {
+          enter: (node) => {
+            self._containerStack.push(node);
+          },
+          exit: () => {
+            self._containerStack.pop();
+          },
         },
         AttrNode: {
           enter: (node) => {

@@ -99,6 +99,30 @@ module.exports = {
     };
   },
 
+  setupPreprocessorRegistry(type, registry) {
+    // For apps
+    if (type === 'parent' && this._isCoverageEnabled()) {
+      registry.add('htmlbars-ast-plugin', this.buildTemplatePlugin());
+    }
+  },
+
+  _isCoverageEnabled() {
+    let config = this.project.config(process.env.EMBER_ENV)[this.name] || {};
+    return process.env[config.coverageEnvVar || 'COVERAGE'] === 'true';
+  },
+
+  treeForAddon() {
+    if (this._isCoverageEnabled()) {
+      return this._super.treeForAddon.apply(this, arguments);
+    }
+  },
+
+  treeForApp() {
+    if (this._isCoverageEnabled()) {
+      return this._super.treeForApp.apply(this, arguments);
+    }
+  },
+
   buildNamespaceMappings() {
     let rootNamespaceMappings = new Map();
     function recurse(item) {
@@ -163,6 +187,30 @@ module.exports = {
       configPath: this.project.configPath(),
       root: this.project.root,
       namespaceMappings: this.buildNamespaceMappings(),
+    };
+  },
+
+  buildTemplatePlugin() {
+    const buildTemplateInstrumenter = require('./lib/template-instrumenter');
+    let plugin = buildTemplateInstrumenter('.', ['hbs'], '**/*.hbs');
+
+    return {
+      name: 'template-instrumenter',
+      plugin,
+      parallelBabel: {
+        requireFile: __filename,
+        buildUsing: 'buildTemplatePlugin',
+        params: {
+          // root: root || this.parent.root,
+          // registry: registry || this.registry,
+        },
+      },
+      baseDir() {
+        return __dirname;
+      },
+      cacheKey() {
+        return 'template-instrumenter';
+      },
     };
   },
 };

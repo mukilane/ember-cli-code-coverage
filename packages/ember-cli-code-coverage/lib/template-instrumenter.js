@@ -9,6 +9,9 @@ const HELPERS = {
   REGISTER: 'ember-cli-code-coverage-register',
 };
 
+const STATEMENTS_TO_INSERT = Symbol('statementsToInsert');
+const IS_COVERAGE_HELPER = Symbol('isCoverageHelper');
+
 module.exports = function (appRoot, templateExtensions, include, exclude) {
   const _exclude = new TestExclude({
     cwd: appRoot,
@@ -22,8 +25,11 @@ module.exports = function (appRoot, templateExtensions, include, exclude) {
     self.options = options;
     self.syntax = options.syntax;
     let moduleName = options.meta.moduleName;
-    // console.trace(options)
-    if (!moduleName) {
+
+    if (
+      !moduleName ||
+      (moduleName.endsWith('-test.js') && moduleName.includes('tests/'))
+    ) {
       return {
         visitor: {},
       };
@@ -54,16 +60,16 @@ module.exports = function (appRoot, templateExtensions, include, exclude) {
         statement: self.cov._currentStatement,
       });
 
-      container._statementsToInsert = container._statementsToInsert || [];
-      container._statementsToInsert.unshift({
+      container[STATEMENTS_TO_INSERT] = container[STATEMENTS_TO_INSERT] || [];
+      container[STATEMENTS_TO_INSERT].unshift({
         helper,
         index,
       });
     };
 
     self.processStatementsToInsert = (node) => {
-      if (node._statementsToInsert) {
-        node._statementsToInsert.forEach((statement) => {
+      if (node[STATEMENTS_TO_INSERT]) {
+        node[STATEMENTS_TO_INSERT].forEach((statement) => {
           let { helper, index } = statement;
 
           let children = node.children || node.body;
@@ -96,7 +102,7 @@ module.exports = function (appRoot, templateExtensions, include, exclude) {
     };
 
     self.handleStatement = (node) => {
-      if (node.isCoverageHelper) {
+      if (node[IS_COVERAGE_HELPER]) {
         return;
       }
 
@@ -112,6 +118,11 @@ module.exports = function (appRoot, templateExtensions, include, exclude) {
       }
 
       if (node.loc.start.line == null) {
+        return;
+      }
+
+      let current = self.currentContainer();
+      if (current.type === 'AttrNode' && node.params?.length === 0) {
         return;
       }
 
@@ -148,7 +159,7 @@ module.exports = function (appRoot, templateExtensions, include, exclude) {
         return;
       }
 
-      if (node.isCoverageHelper) {
+      if (node[IS_COVERAGE_HELPER]) {
         return;
       }
 
@@ -181,7 +192,7 @@ module.exports = function (appRoot, templateExtensions, include, exclude) {
         b.string(JSON.stringify(self.cov.data)),
       ]);
 
-      helper.isCoverageHelper = true;
+      helper[IS_COVERAGE_HELPER] = true;
       return helper;
     };
 
@@ -207,13 +218,13 @@ module.exports = function (appRoot, templateExtensions, include, exclude) {
 
       let helper = b[isInline ? 'sexpr' : 'mustache'](
         helperPath,
-        isInline
+        (isInline
           ? params
-          : params && params.map((p) => b.string(JSON.stringify(p))),
+          : params && params.map((p) => b.string(JSON.stringify(p)))) || [],
         hash
       );
 
-      helper.isCoverageHelper = true;
+      helper[IS_COVERAGE_HELPER] = true;
       return helper;
     };
 
@@ -265,29 +276,28 @@ module.exports = function (appRoot, templateExtensions, include, exclude) {
         MustacheStatement: handleStatement,
         TextNode: handleStatement,
         ElementModifierStatement: (node) => {
-          const helper = self.createHelper(
-            [node.params[1]],
-            {
-              action: true,
-              statement: self.cov.newStatement(node),
-            },
-            true
-          );
-
-          node.params[1] = helper;
+          if (node.path.original === 'on') {
+            const helper = self.createHelper(
+              [node.params[1]],
+              {
+                action: true,
+                statement: self.cov.newStatement(node),
+              },
+              true
+            );
+            node.params[1] = helper;
+          }
         },
         AttrNode: {
           enter: (node) => {
-            if (node.value && node.value.type === 'TextNode') {
-              return;
+            if (node.value && node.value.type === 'MustacheStatement') {
+              self._containerStack.push(node);
             }
-            self._containerStack.push(node);
           },
           exit: (node) => {
-            if (node.value && node.value.type === 'TextNode') {
-              return;
+            if (node.value && node.value.type === 'MustacheStatement') {
+              self._containerStack.pop();
             }
-            self._containerStack.pop();
           },
         },
       },
